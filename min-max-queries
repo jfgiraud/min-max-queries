@@ -1,0 +1,250 @@
+#!/usr/bin/python3
+
+import calendar
+import datetime
+import getopt
+import os
+import os.path
+import re
+import sys
+import tempfile
+import stat
+import math
+import atexit
+
+
+def usage(message=None, retval=0):
+    if message is not None:
+        print(message, file=sys.stderr)
+        print("\n", file=sys.stderr)
+    print('''NAME:
+        %(prog)s - computes min & max simultaneous queries (or calls) for a specified period with a specified granularity.
+
+        The program reads data in files or standard input.
+
+        The expected input format is a csv file:
+        - with 2 columns (a start field followed by a stop field)
+        - each line must contain a start and stop value with the format "YYYY-MM-DD hh:mm:ss"
+
+        A line is used to compute statistics only if a part of the query is contained in the analyzed period.
+
+        The program use an array to store query count (1 cell per second).
+        So, the specified period to analyze is limited to 2678400 seconds (ie 31 days).
+
+SYNOPSYS:
+        %(prog)s
+        -h, --help                 display help
+        -i, --ignore               ignore first line
+        -v, --verbose              display parsed lines
+        -s, --separator            specifies the separator between begin & end fields
+        -m, --month                specifies the month (format YYYY-MM)
+        -f, --from                 specifies the starting datetime (format YYYY-MM-DD hh:mm:ss)
+        -t, --to                   specifies the stopping datetime (format YYYY-MM-DD hh:mm:ss)
+        -g, --granularity          specifies the output granularity (daily, hourly, [0-9]+m, [0-9]+h)
+
+With no FILE, or when FILE is -, read standard input.
+AUTHOR
+	Written by Jean-François Giraud.
+COPYRIGHT
+	Copyright (c) 2016 Jean-François Giraud.
+	License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+	This is free software: you are free to change and redistribute it.
+	There is NO WARRANTY, to the extent permitted by law.
+    ''' % {'prog': os.path.basename(sys.argv[0])})
+    sys.exit(retval)
+
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "hvig:s:m:f:t:", ["help", "verbose", "ignore", "granularity=", "separator=", "month=", "from=", "to="])
+except getopt.GetoptError:
+    usage(2)
+
+
+if len(opts) == 0:
+    usage()
+
+DT_FORMAT="%Y-%m-%d %H:%M:%S"
+granularity=86400 # daily
+separator=';'
+verbose=False
+ignore=False
+starting_dt=None
+stopping_dt=None
+
+
+def diff_in_seconds(dt_month_begin, dt_month_end):
+    diff = dt_month_end - dt_month_begin
+    last_second = diff.days * 86400 + diff.seconds
+    return last_second + 1
+
+
+def from_ymdhms(s):
+    return datetime.datetime.strptime(s, DT_FORMAT)
+
+
+for o, a in opts:
+    if o in ("-h", "--help"):
+        usage()
+    if o in ("-s", "--separator"):
+        separator = a
+    if o in ("-v", "--verbose"):
+        verbose = True
+    if o in ("-i", "--ignore"):
+        ignore = True
+    if o in ("-g", "--granularity"):
+        pattern = re.compile("([0-9]+)m")
+        m = pattern.match(a)
+        if m:
+            granularity = 60 * int(m.group(1))
+            continue
+        if a == 'hourly':
+            granularity = 60 * 60
+            continue
+        if a == 'daily':
+            granularity = 24 * 60 * 60
+            continue
+        pattern = re.compile("([0-9]+)h")
+        m = pattern.match(a)
+        if m:
+            granularity = 60 * 60 * int(m.group(1))
+            continue
+        usage("invalid period", 2)
+    if o in ("-m", "--month"):
+        if not re.compile("[0-9]{4}-(01|02|03|04|05|06|07|08|09|10|11|12)").match(a):
+            raise Exception("invalid month")
+        starting_dt = from_ymdhms("%s-01 00:00:00" % a)
+        last_day = calendar.monthrange(starting_dt.year, starting_dt.month)[1]
+        stopping_dt = from_ymdhms("%s-%.2d 23:59:59" % (a, last_day))
+    if o in ("-f", "--from"):
+        if starting_dt:
+            usage("starting date already defined", 2)
+        starting_dt = from_ymdhms(a)
+    if o in ("-t", "--to"):
+        if stopping_dt:
+            usage("stopping date already defined", 2)
+        stopping_dt = from_ymdhms(a)
+
+
+def create_tmp_and_init(fd_in):
+    (fno, new_file) = tempfile.mkstemp()
+    with open(fno, 'wt') as fd_out:
+        for line in fd_in:
+            fd_out.write(line)
+    return new_file
+
+
+def op(filename):
+    if filename == '-':
+        return True, create_tmp_and_init(sys.stdin)
+    else:
+        with open(filename, 'rt') as fd_in:
+            if stat.S_ISFIFO(os.fstat(fd_in.fileno()).st_mode):
+                return True, create_tmp_and_init(fd_in)
+            else:
+                return False, filename
+
+
+def as_second(dt):
+    return (dt.day-1)*(24*3600) + dt.hour * 3600 + dt.minute * 60 + dt.second
+
+def to_ymdhms(dt, index=0):
+    if index:
+        dt = dt + datetime.timedelta(seconds=index)
+    return dt.strftime(DT_FORMAT)
+
+
+import sys
+import time
+
+start_progress = time.time()
+
+def progress(count, total):
+    bar_len = 60
+    filled_len = int(round(bar_len * count / float(total)))
+    percents = round(100.0 * count / float(total), 1)
+    bar = '=' * filled_len + '-' * (bar_len - filled_len)
+    elapsed_time = time.time() - start_progress;
+    estimated_remaining = int(elapsed_time * (100/percents) - elapsed_time) if percents else 0
+    print('[%s] %s%% [%d/%d] elapsed=%-5s left=%-5s' % (bar, percents, count, total, "%ds" % elapsed_time, "%ds" % estimated_remaining), end='\r', flush=True, file=sys.stderr)
+
+
+if len(args) == 0:
+    args = ["-"]
+
+args = [op(x) for x in args]
+
+counts = [0] * diff_in_seconds(starting_dt, stopping_dt)
+
+max_seconds = 31 * 86400
+period_seconds = diff_in_seconds(starting_dt, stopping_dt)
+if  period_seconds > max_seconds:
+    usage(message="period is too large (%d seconds > %d seconds)!" % (period_seconds, max_seconds), retval=2)
+
+def restore_cursor():
+    os.system('setterm -cursor on')
+
+if verbose:
+    atexit.register(restore_cursor)
+    os.system('setterm -cursor off')
+for arg in args:
+    bool, file_name = arg
+    first = True
+    num_lines = 0
+    with open(file_name, 'rt') as fd:
+        num_lines = sum(1 for line in open(file_name, 'rt'))
+    with open(file_name, 'rt') as fd:
+        num_line = 0
+        for line in fd:
+            if ignore and first:
+                first = False
+                continue
+            num_line += 1
+            (line_begin, line_end) = line.strip().split(separator, 2)
+            starting_data_dt = from_ymdhms(line_begin)
+            stopping_data_end = from_ymdhms(line_end)
+            if stopping_data_end > starting_dt and starting_data_dt < stopping_dt:
+                modified = False
+                if starting_data_dt < starting_dt:
+                    starting_data_dt = starting_dt
+                    modified = True
+                if stopping_data_end > stopping_dt:
+                    modified = True
+                    stopping_data_end = stopping_dt
+                s_begin = diff_in_seconds(starting_dt, starting_data_dt) - 1
+                s_end = diff_in_seconds(starting_dt, stopping_data_end) - 1
+                if verbose:
+                    progress(num_line, num_lines)
+                for i in range(s_begin, s_end):
+                    counts[i] += 1
+            else:
+                if verbose:
+                    progress(num_line, num_lines)
+        if verbose:
+            sys.stdout.write('\n')
+            sys.stdout.flush()
+if verbose:
+    restore_cursor()
+
+
+def genrange(dt_month_begin, dt_month_end, period=86400):
+    i = 0
+    last_second = diff_in_seconds(dt_month_begin, dt_month_end) - 1
+    while i < math.ceil(last_second / period):
+        start_second = i * period
+        end_second = (i + 1) * period - 1
+        if end_second > last_second:
+            end_second = last_second - 1
+        yield slice(start_second, end_second)
+        i+=1
+
+
+print("start\tstop\tmin\tmax")
+for s in genrange(starting_dt, stopping_dt, granularity):
+    minimum = min(counts[s])
+    maximum = max(counts[s])
+    start = to_ymdhms(starting_dt, index=s.start)
+    stop = to_ymdhms(starting_dt, index=s.stop)
+    print("%s\t%s\t%d\t%d" % (start, stop, minimum, maximum))
+min_month = min(counts)
+max_month = max(counts)
+print("min                \t%s\t%d\t-" % (to_ymdhms(starting_dt, index=counts.index(min_month)), min_month))
+print("max                \t%s\t-\t%d" % (to_ymdhms(starting_dt, index=counts.index(max_month)), max_month))
