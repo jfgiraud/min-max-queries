@@ -6,11 +6,12 @@ import getopt
 import os
 import os.path
 import re
-import sys
 import tempfile
 import stat
 import math
 import atexit
+import sys
+import time
 
 
 def usage(message=None, retval=0):
@@ -43,14 +44,16 @@ SYNOPSYS:
         -g, --granularity          specifies the output granularity (daily, hourly, [0-9]+m, [0-9]+h)
 
 With no FILE, or when FILE is -, read standard input.
+
 AUTHOR
-	Written by Jean-François Giraud.
+        Written by Jean-François Giraud.
+
 COPYRIGHT
-	Copyright (c) 2016 Jean-François Giraud.
-	License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
-	This is free software: you are free to change and redistribute it.
-	There is NO WARRANTY, to the extent permitted by law.
-    ''' % {'prog': os.path.basename(sys.argv[0])})
+        Copyright (c) 2016 Jean-François Giraud.
+        License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+        This is free software: you are free to change and redistribute it.
+        There is NO WARRANTY, to the extent permitted by law.
+        ''' % {'prog': os.path.basename(sys.argv[0])})
     sys.exit(retval)
 
 try:
@@ -62,13 +65,13 @@ except getopt.GetoptError:
 if len(opts) == 0:
     usage()
 
-DT_FORMAT="%Y-%m-%d %H:%M:%S"
-granularity=86400 # daily
-separator=';'
-verbose=False
-ignore=False
-starting_dt=None
-stopping_dt=None
+DT_FORMAT = "%Y-%m-%d %H:%M:%S"
+granularity = 86400  # daily
+separator = ';'
+verbose = False
+ignore = False
+starting_dt = None
+stopping_dt = None
 
 
 def diff_in_seconds(dt_month_begin, dt_month_end):
@@ -146,16 +149,15 @@ def op(filename):
 def as_second(dt):
     return (dt.day-1)*(24*3600) + dt.hour * 3600 + dt.minute * 60 + dt.second
 
+
 def to_ymdhms(dt, index=0):
     if index:
         dt = dt + datetime.timedelta(seconds=index)
     return dt.strftime(DT_FORMAT)
 
 
-import sys
-import time
-
 start_progress = time.time()
+
 
 def progress(count, total):
     bar_len = 60
@@ -176,8 +178,10 @@ counts = [0] * diff_in_seconds(starting_dt, stopping_dt)
 
 max_seconds = 31 * 86400
 period_seconds = diff_in_seconds(starting_dt, stopping_dt)
-if  period_seconds > max_seconds:
+
+if period_seconds > max_seconds:
     usage(message="period is too large (%d seconds > %d seconds)!" % (period_seconds, max_seconds), retval=2)
+
 
 def restore_cursor():
     os.system('setterm -cursor on')
@@ -186,7 +190,7 @@ if verbose:
     atexit.register(restore_cursor)
     os.system('setterm -cursor off')
 for arg in args:
-    bool, file_name = arg
+    _, file_name = arg
     first = True
     num_lines = 0
     with open(file_name, 'rt') as fd:
@@ -221,24 +225,25 @@ for arg in args:
         if verbose:
             sys.stdout.write('\n')
             sys.stdout.flush()
+
 if verbose:
     restore_cursor()
 
 
-def genrange(dt_month_begin, dt_month_end, period=86400):
-    i = 0
+def generate_range(dt_month_begin, dt_month_end, period=86400):
+    j = 0
     last_second = diff_in_seconds(dt_month_begin, dt_month_end) - 1
-    while i < math.ceil(last_second / period):
-        start_second = i * period
-        end_second = (i + 1) * period - 1
+    while j < math.ceil(last_second / period):
+        start_second = j * period
+        end_second = (j + 1) * period - 1
         if end_second > last_second:
             end_second = last_second - 1
         yield slice(start_second, end_second)
-        i+=1
+        j += 1
 
 
 print("start\tstop\tmin\tmax")
-for s in genrange(starting_dt, stopping_dt, granularity):
+for s in generate_range(starting_dt, stopping_dt, granularity):
     minimum = min(counts[s])
     maximum = max(counts[s])
     start = to_ymdhms(starting_dt, index=s.start)
