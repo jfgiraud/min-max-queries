@@ -1,6 +1,6 @@
 # min-max-queries
 
-### Description
+## Description
 
 `min-max-queries` computes min & max simultaneous queries (or calls) for a specified period with a specified granularity.
 
@@ -16,7 +16,7 @@ The program use an array to store query count (1 cell per second).
 So, the specified period to analyze is limited to 2678400 seconds (ie 31 days).
 
 
-### Input 
+## Input 
 
 ```bash
  $ head ~/data.csv
@@ -28,7 +28,7 @@ So, the specified period to analyze is limited to 2678400 seconds (ie 31 days).
  2016-06-30 23:58:56	2016-07-01 00:00:26
 ```  
 
-### Output
+## Output
 
 ```bash
 $ ./min-max-queries -m 2016-07 -s $'\t' -g daily -v -i < ~/data.csv 
@@ -70,25 +70,25 @@ max                	2016-07-18 10:16:08	-	891
 ```  
 
 
-### Options 
+## Options 
 
-#### define the analyzed period
+### define the analyzed period
 
 The analyzed period can be defined with the:
 - `-m, --month` option
 - or `-f, --from` and `-t, --to` options 
 
-#### define the csv separator in input file
+### define the csv separator in input file
 
 To define the field separator in input file, use the `-s, --separator` option.
  
 The default separator is `';'`. 
 
-#### ignore the first line of csv files
+### ignore the first line of csv files
 
 To ignore the first line of csv files, use the `-i, --ignore` option.
 
-#### set the verbose mode (-v, --verbose)
+### set the verbose mode (-v, --verbose)
 
 To display a progress bar, use the `-v, --verbose` option.
 
@@ -97,7 +97,7 @@ $ ./min-max-queries -m 2016-07 -s $'\t' -g daily -v -i < ~/data.csv
 [==-----------------------------] 6.3% [387278/6163483] elapsed=107s  left=1605s
 ```  
 
-#### set the report granularity
+### set the report granularity
 
 To define the granularity, use the `-g, --granularity` option.
 
